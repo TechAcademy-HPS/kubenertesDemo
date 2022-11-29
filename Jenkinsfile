@@ -15,7 +15,6 @@ pipeline {
       	
          stage('Build'){
              steps{
-	            sh "cd mavenapp"
 		    sh "mvn clean package"
 	              }
         }  
