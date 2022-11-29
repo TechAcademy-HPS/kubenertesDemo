@@ -1,64 +1,56 @@
+def buildno = BUILD_NUMBER
 pipeline {
     agent any
-
     tools {
         // Install the Maven version configured as "M3" and add it to the path.
-        maven "maven"
+        maven "maven3.6.3"
     }
-
-    stages {
-        stage('checkout') {
-            steps {
-                git credentialsId: 'SSHKey', url: 'https://github.com/TechAcademy-HPS/maven-web-application.git'
-            }
-        }
-	stage('Build') {
-            steps {
-                sh "mvn clean package"
-
-            }
-        }
-        stage('sonar') {
-            steps {
-		    script {
-                withSonarQubeEnv('SonarQube') {
-                sh "mvn sonar:sonar"
-                }
-               timeout(time: 20, unit: 'SECONDS') {
-                      def qg = waitForQualityGate()
-                      if (qg.status != 'OK') {
-                           error "Pipeline aborted due to quality gate failure: ${qg.status}"
-                      }
-                    }
-                 }
-	      }
-           }
-       /* stage('upload to nexus') {
-            steps {
-                nexusArtifactUploader artifacts: [
-				[
-				artifactId: 'maven-web-application',
-				classifier: '',
-				file: 'target/maven-web-application.war',
-				type: 'war'
-				]
-				],
-				credentialsId: 'nexuscredentials',
-				groupId: 'com.mt',
-				nexusUrl: '3.108.61.252:8081',
-				nexusVersion: 'nexus3',
-				protocol: 'http',
-				repository: 'mavenapp',
-				version: '0.0.1'
-
-            }
-        }*/
+    
 	
-           stage('deploy') {
-            steps {
-              ansiblePlaybook become: true, disableHostKeyChecking: true, installation: 'Ansible', inventory: 'hosts.inv', playbook: 'Deploy.yml'
-                 }
+	environment {
+        registry = "332303016470.dkr.ecr.ap-south-1.amazonaws.com/mydockerrepo"
+    }
+	
+    stages {
+      	
+         stage('Build'){
+             steps{
+	            sh "cd mavenapp"
+		    sh "mvn clean package"
+	              }
+        }  
+	
+	stage('Building image') {
+            steps{
+                script {
+			  sh "docker build -t yoshithadocker/mydockerrepo:latest ." 
+                     }
+                  }
+              }
+	      
+	stage('push to repo') {
+            steps{
+                script {
+			  withCredentials([usernamePassword(credentialsId: 'dockerhub', passwordVariable: 'dockerpassword', usernameVariable: 'dockeruser')]) {
+                                        
+					sh 'docker login -u yoshithadocker -p ${dockerpassword}'
+			                sh "docker push yoshithadocker/mydockerrepo:latest"
+                     }
+                  }
+              }
+          }
+	 
+         stage('K8S Deploy') {
+             steps{   
+              script {
+                 
+		      kubeconfig(credentialsId: 'kubeconfig', serverUrl: 'https://394B0D2B64F459D83B8A7C980116DC28.gr7.us-east-2.eks.amazonaws.com') {
+                                 sh ('kubectl apply -f  eks-deploy-k8s.yaml')
+                             }
+             }
             }
-			
         }
+
+     }
+
 }
